@@ -71,9 +71,16 @@ PORT=5000 python3 main.py
 - Meeting recording upload
 - Background transcription and summarization
 
+## Local development helpers
+
+- Set `DEV_AUTH_USER_ID` to allow owner-scoped meeting endpoints and uploads without a bearer token during local development.
+- Set `CORS_ORIGINS` to a comma-separated list of allowed web origins when testing browser uploads.
+- Uploaded audio files are stored under `backend/media/` by default and served from `/media/...` locally.
+
 ## API Endpoints
 
 - `GET /auth/verify` — verify Supabase JWT and return authenticated user summary.
 - `POST /meetings/` — create a meeting record for the authenticated user.
+- `POST /meetings/upload` — upload audio directly as multipart form data and create a meeting record.
 - `GET /meetings/{meeting_id}` — fetch one meeting (owner-only).
 - `POST /meetings/upload/webhook` — update meeting upload metadata/status (optional `X-Webhook-Secret`).

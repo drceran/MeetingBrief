@@ -24,6 +24,19 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _get_dev_user() -> Dict[str, Any] | None:
+    user_id = os.getenv("DEV_AUTH_USER_ID", "").strip()
+    if not user_id:
+        return None
+
+    return {
+        "sub": user_id,
+        "email": os.getenv("DEV_AUTH_EMAIL", "dev@meetingbrief.local"),
+        "role": "developer",
+        "is_dev_auth": True,
+    }
+
+
 def _get_jwt_secret() -> str:
     secret = os.getenv("SUPABASE_JWT_SECRET", "")
     if not secret or secret == "your-supabase-jwt-secret":
@@ -94,5 +107,17 @@ def get_current_user(
     return payload
 
 
+def get_current_user_or_dev(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> Dict[str, Any]:
+    if credentials is None:
+        dev_user = _get_dev_user()
+        if dev_user is not None:
+            return dev_user
+
+    return get_current_user(credentials)
+
+
 # Convenience type alias for use as an annotated dependency
 CurrentUser = Annotated[Dict[str, Any], Depends(get_current_user)]
+CurrentOrDevUser = Annotated[Dict[str, Any], Depends(get_current_user_or_dev)]

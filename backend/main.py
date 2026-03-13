@@ -1,6 +1,8 @@
 import os
 import asyncio
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 
 def _load_local_env() -> None:
@@ -22,6 +24,23 @@ def _load_local_env() -> None:
 
 
 _load_local_env()
+
+
+def _get_media_dir() -> str:
+    media_dir = os.getenv(
+        "MEDIA_DIR",
+        os.path.join(os.path.dirname(__file__), "media"),
+    )
+    os.makedirs(media_dir, exist_ok=True)
+    return media_dir
+
+
+def _get_cors_origins() -> list[str]:
+    raw_origins = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
 try:
     from . import db
@@ -57,6 +76,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Meeting Notes AI Backend", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.mount("/media", StaticFiles(directory=_get_media_dir()), name="media")
 
 
 @app.get("/")
