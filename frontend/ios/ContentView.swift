@@ -153,6 +153,10 @@ struct MeetingUploadResponse: Decodable {
     }
 }
 
+private struct MeetingStartRequest: Encodable {
+    let title: String?
+}
+
 @MainActor
 final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var backendURL = "http://localhost:8000"
@@ -249,24 +253,15 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
         statusMessage = "Uploading recording..."
 
         do {
-            var request = URLRequest(url: try uploadEndpoint())
-            request.httpMethod = "POST"
+            statusMessage = "Creating meeting..."
+            let startedMeeting = try await startMeeting()
 
-            let boundary = "Boundary-\(UUID().uuidString)"
-            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            statusMessage = "Uploading recording..."
+            _ = try await uploadAudio(for: startedMeeting.id, fileURL: recordingURL)
 
-            let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedToken.isEmpty {
-                request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
-            }
-
-            let body = try multipartBody(for: recordingURL, boundary: boundary)
-            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            try validateResponse(data: data, response: response)
-
-            let decoder = JSONDecoder()
-            uploadResult = try decoder.decode(MeetingUploadResponse.self, from: data)
-            statusMessage = "Upload complete. Meeting created successfully."
+            statusMessage = "Finalizing meeting..."
+            uploadResult = try await finalizeMeeting(id: startedMeeting.id)
+            statusMessage = "Upload complete. Meeting created and finalized successfully."
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = "Upload failed."
@@ -298,15 +293,72 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
         timer = nil
     }
 
-    private func uploadEndpoint() throws -> URL {
+    private func baseEndpoint() throws -> URL {
         let normalized = backendURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        guard let url = URL(string: normalized + "/meetings/upload") else {
+        guard let url = URL(string: normalized) else {
             throw UploadError.invalidBackendURL
         }
 
         return url
+    }
+
+    private func authorizedRequest(url: URL, method: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+
+        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedToken.isEmpty {
+            request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        return request
+    }
+
+    private func startMeeting() async throws -> MeetingUploadResponse {
+        let baseURL = try baseEndpoint()
+        let startURL = baseURL.appendingPathComponent("meetings/start")
+        var request = authorizedRequest(url: startURL, method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let trimmedTitle = meetingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = MeetingStartRequest(title: trimmedTitle.isEmpty ? nil : trimmedTitle)
+        let body = try JSONEncoder().encode(payload)
+
+        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+        try validateResponse(data: data, response: response, defaultMessage: "Failed to create meeting.")
+        return try JSONDecoder().decode(MeetingUploadResponse.self, from: data)
+    }
+
+    private func uploadAudio(for meetingID: String, fileURL: URL) async throws -> MeetingUploadResponse {
+        let baseURL = try baseEndpoint()
+        let uploadURL = baseURL
+            .appendingPathComponent("meetings")
+            .appendingPathComponent(meetingID)
+            .appendingPathComponent("upload-audio")
+
+        var request = authorizedRequest(url: uploadURL, method: "POST")
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let body = try multipartBody(for: fileURL, boundary: boundary)
+        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+        try validateResponse(data: data, response: response, defaultMessage: "Failed to upload recording.")
+        return try JSONDecoder().decode(MeetingUploadResponse.self, from: data)
+    }
+
+    private func finalizeMeeting(id meetingID: String) async throws -> MeetingUploadResponse {
+        let baseURL = try baseEndpoint()
+        let finalizeURL = baseURL
+            .appendingPathComponent("meetings")
+            .appendingPathComponent(meetingID)
+            .appendingPathComponent("finalize")
+
+        let request = authorizedRequest(url: finalizeURL, method: "POST")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateResponse(data: data, response: response, defaultMessage: "Failed to finalize meeting.")
+        return try JSONDecoder().decode(MeetingUploadResponse.self, from: data)
     }
 
     private func multipartBody(for fileURL: URL, boundary: String) throws -> Data {
@@ -338,7 +390,7 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
         return body
     }
 
-    private func validateResponse(data: Data, response: URLResponse) throws {
+    private func validateResponse(data: Data, response: URLResponse, defaultMessage: String) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw UploadError.invalidResponse
         }
@@ -349,7 +401,7 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
                 throw UploadError.backend(detail)
             }
 
-            throw UploadError.backend("Upload failed with status \(httpResponse.statusCode).")
+            throw UploadError.backend("\(defaultMessage) Status \(httpResponse.statusCode).")
         }
     }
 }

@@ -12,5 +12,5 @@ SwiftUI iOS app for Meeting Notes AI.
 ## Features
 
 - Audio recording with AVFoundation
-- Direct multipart upload to `POST /meetings/upload`
+- Meeting lifecycle flow using `POST /meetings/start`, `POST /meetings/{id}/upload-audio`, and `POST /meetings/{id}/finalize`
 - Display of the latest meeting creation response
