@@ -80,7 +80,10 @@ PORT=5000 python3 main.py
 ## API Endpoints
 
 - `GET /auth/verify` — verify Supabase JWT and return authenticated user summary.
+- `POST /meetings/start` — create an empty meeting record and begin the client-driven lifecycle.
 - `POST /meetings/` — create a meeting record for the authenticated user.
+- `POST /meetings/{meeting_id}/upload-audio` — attach uploaded audio to an existing meeting.
+- `POST /meetings/{meeting_id}/finalize` — mark an uploaded meeting as finalized.
 - `POST /meetings/upload` — upload audio directly as multipart form data and create a meeting record.
 - `GET /meetings/{meeting_id}` — fetch one meeting (owner-only).
 - `POST /meetings/upload/webhook` — update meeting upload metadata/status (optional `X-Webhook-Secret`).

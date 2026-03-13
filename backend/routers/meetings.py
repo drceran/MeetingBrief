@@ -22,6 +22,10 @@ router = APIRouter()
 _DEFAULT_MEDIA_DIR = Path(__file__).resolve().parents[1] / "media"
 
 
+class MeetingStartPayload(BaseModel):
+    title: str | None = None
+
+
 class MeetingCreate(BaseModel):
     audio_url: str
     duration_seconds: int = Field(gt=0)
@@ -45,6 +49,18 @@ class MeetingResponse(BaseModel):
     duration_seconds: int
     title: str | None
     created_at: datetime | None
+
+
+async def _get_owned_meeting(
+    meeting_id: str,
+    user_id: str,
+    db: AsyncSession,
+) -> Meeting:
+    result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+    meeting = result.scalar_one_or_none()
+    if not meeting or meeting.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    return meeting
 
 
 def _get_media_dir() -> Path:
@@ -102,6 +118,25 @@ async def _persist_upload(audio: UploadFile) -> str:
     return file_name
 
 
+@router.post("/start", response_model=MeetingResponse)
+async def start_meeting(
+    payload: MeetingStartPayload,
+    user: CurrentOrDevUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    meeting = Meeting(
+        user_id=user["sub"],
+        audio_url=None,
+        duration_seconds=0,
+        status="started",
+        title=payload.title,
+    )
+    db.add(meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting
+
+
 @router.post("/", response_model=MeetingResponse)
 async def create_meeting(
     payload: MeetingCreate,
@@ -124,11 +159,11 @@ async def create_meeting(
 @router.post("/upload", response_model=MeetingResponse)
 async def upload_meeting_audio(
     request: Request,
+    user: CurrentOrDevUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
     audio: UploadFile = File(...),
     duration_seconds: int = Form(..., gt=0),
     title: str | None = Form(default=None),
-    user: CurrentOrDevUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     file_name = await _persist_upload(audio)
     meeting = Meeting(
@@ -139,6 +174,50 @@ async def upload_meeting_audio(
         title=title,
     )
     db.add(meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting
+
+
+@router.post("/{meeting_id}/upload-audio", response_model=MeetingResponse)
+async def upload_meeting_audio_for_existing_meeting(
+    meeting_id: str,
+    request: Request,
+    user: CurrentOrDevUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    audio: UploadFile = File(...),
+    title: str | None = Form(default=None),
+    duration_seconds: int | None = Form(default=None, ge=0),
+):
+    meeting = await _get_owned_meeting(meeting_id, user["sub"], db)
+    file_name = await _persist_upload(audio)
+
+    meeting.audio_url = _build_media_url(request, file_name)
+    if duration_seconds is not None:
+        meeting.duration_seconds = duration_seconds
+    if title is not None:
+        meeting.title = title
+    meeting.status = "uploaded"
+
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting
+
+
+@router.post("/{meeting_id}/finalize", response_model=MeetingResponse)
+async def finalize_meeting(
+    meeting_id: str,
+    user: CurrentOrDevUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    meeting = await _get_owned_meeting(meeting_id, user["sub"], db)
+    if not meeting.audio_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meeting audio must be uploaded before finalizing",
+        )
+
+    meeting.status = "finalized"
     await db.commit()
     await db.refresh(meeting)
     return meeting
@@ -157,7 +236,7 @@ async def upload_webhook(
             detail="Invalid webhook secret",
         )
 
-    if payload.status not in {"uploaded", "processed"}:
+    if payload.status not in {"started", "uploaded", "finalized", "processed"}:
         raise HTTPException(status_code=400, detail="Invalid meeting status")
 
     result = await db.execute(select(Meeting).where(Meeting.id == payload.meeting_id))
@@ -182,8 +261,4 @@ async def get_meeting(
     user: CurrentOrDevUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
-    meeting = result.scalar_one_or_none()
-    if not meeting or meeting.user_id != user["sub"]:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    return meeting
+    return await _get_owned_meeting(meeting_id, user["sub"], db)
