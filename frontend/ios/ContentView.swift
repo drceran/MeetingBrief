@@ -3,15 +3,7 @@
 
 import SwiftUI
 import AVFoundation
-
-@main
-struct MeetingNotesAIApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
-}
+import Combine
 
 struct ContentView: View {
     @StateObject private var viewModel = RecordingViewModel()
@@ -39,8 +31,8 @@ struct ContentView: View {
                         Text("Backend URL")
                             .font(.headline)
                         TextField("http://localhost:8000", text: $viewModel.backendURL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
                             .textFieldStyle(.roundedBorder)
 
                         Text("Bearer token")
