@@ -15,6 +15,17 @@ type UploadResult = {
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
+async function getErrorMessage(response: Response): Promise<string> {
+  const fallbackMessage = `Request failed with status ${response.status}.`;
+
+  try {
+    const data = (await response.json()) as { detail?: string };
+    return data.detail || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') {
     return '';
@@ -134,6 +145,12 @@ function App() {
 
     const durationSeconds = Math.max(elapsedSeconds, 1);
     const extension = mimeType.includes('mp4') ? 'm4a' : 'webm';
+    const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+    const authHeaders = authToken.trim()
+      ? {
+          Authorization: `Bearer ${authToken.trim()}`,
+        }
+      : undefined;
     const formData = new FormData();
     formData.append('audio', audioBlob, `meeting-recording.${extension}`);
     formData.append('duration_seconds', String(durationSeconds));
@@ -142,33 +159,48 @@ function App() {
     }
 
     try {
-      const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/meetings/upload`, {
+      setStatusMessage('Creating meeting...');
+      const startResponse = await fetch(`${normalizedApiBase}/meetings/start`, {
         method: 'POST',
-        headers: authToken.trim()
-          ? {
-              Authorization: `Bearer ${authToken.trim()}`,
-            }
-          : undefined,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authHeaders ?? {}),
+        },
+        body: JSON.stringify({
+          title: title.trim() || null,
+        }),
+      });
+
+      if (!startResponse.ok) {
+        throw new Error(await getErrorMessage(startResponse));
+      }
+
+      const startedMeeting = (await startResponse.json()) as UploadResult;
+
+      setStatusMessage('Uploading recording...');
+      const uploadResponse = await fetch(`${normalizedApiBase}/meetings/${startedMeeting.id}/upload-audio`, {
+        method: 'POST',
+        headers: authHeaders,
         body: formData,
       });
 
-      if (!response.ok) {
-        const fallbackMessage = `Upload failed with status ${response.status}.`;
-        let detail = fallbackMessage;
-
-        try {
-          const data = (await response.json()) as { detail?: string };
-          detail = data.detail || fallbackMessage;
-        } catch {
-          detail = fallbackMessage;
-        }
-
-        throw new Error(detail);
+      if (!uploadResponse.ok) {
+        throw new Error(await getErrorMessage(uploadResponse));
       }
 
-      const data = (await response.json()) as UploadResult;
+      setStatusMessage('Finalizing meeting...');
+      const finalizeResponse = await fetch(`${normalizedApiBase}/meetings/${startedMeeting.id}/finalize`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+
+      if (!finalizeResponse.ok) {
+        throw new Error(await getErrorMessage(finalizeResponse));
+      }
+
+      const data = (await finalizeResponse.json()) as UploadResult;
       setUploadResult(data);
-      setStatusMessage('Upload complete. Meeting created successfully.');
+      setStatusMessage('Upload complete. Meeting created and finalized successfully.');
       setRecordingState('stopped');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Upload failed.';
@@ -193,8 +225,9 @@ function App() {
         <p className="eyebrow">MeetingBrief Local Recorder</p>
         <h1>Record locally, upload directly, verify the backend contract.</h1>
         <p className="hero-copy">
-          This screen is wired to the new multipart upload endpoint. Supply a bearer token, or leave it
-          blank when local development uses <code>DEV_AUTH_USER_ID</code> on the backend.
+          This screen is wired to the meeting lifecycle flow: start, upload audio, then finalize. Supply a
+          bearer token, or leave it blank when local development uses <code>DEV_AUTH_USER_ID</code> on the
+          backend.
         </p>
       </section>
 
