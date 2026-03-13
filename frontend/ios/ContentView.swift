@@ -150,7 +150,7 @@ private struct MeetingStartRequest: Encodable {
 }
 
 @MainActor
-final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
+final class RecordingViewModel: NSObject, ObservableObject {
     @Published var backendURL = "http://localhost:8000"
     @Published var authToken = ""
     @Published var meetingTitle = ""
@@ -171,12 +171,13 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
     }
 
     func prepareAudioSession() {
-        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
-            DispatchQueue.main.async {
-                if !granted {
-                    self?.errorMessage = "Microphone permission is required to record."
-                }
-            }
+        let handlePermission: @Sendable (Bool) -> Void = { _ in
+        }
+
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission(completionHandler: handlePermission)
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission(handlePermission)
         }
     }
 
@@ -201,7 +202,6 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
             ]
 
             let recorder = try AVAudioRecorder(url: outputURL, settings: settings)
-            recorder.delegate = self
             recorder.record()
 
             audioRecorder = recorder
@@ -262,27 +262,22 @@ final class RecordingViewModel: NSObject, ObservableObject, AVAudioRecorderDeleg
         isUploading = false
     }
 
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            errorMessage = "Recording failed before completion."
-            statusMessage = "Recording failed."
-        }
-    }
-
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self, let recordingStartedAt = self.recordingStartedAt else {
-                return
-            }
-
-            self.elapsedSeconds = max(1, Int(Date().timeIntervalSince(recordingStartedAt).rounded()))
-        }
+        timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(handleTimerTick), userInfo: nil, repeats: true)
     }
 
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+
+    @objc private func handleTimerTick() {
+        guard let recordingStartedAt else {
+            return
+        }
+
+        elapsedSeconds = max(1, Int(Date().timeIntervalSince(recordingStartedAt).rounded()))
     }
 
     private func baseEndpoint() throws -> URL {
