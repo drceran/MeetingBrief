@@ -480,19 +480,19 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         await saveArtifactsOperation {
-            let baseURL = try baseEndpoint()
+            let baseURL = try self.baseEndpoint()
             let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("transcript")
-            var request = request(url: url, method: "PUT")
+            var request = self.request(url: url, method: "PUT")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let payload = MeetingTranscriptRequest(
-                transcriptText: transcriptText,
-                provider: transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+                transcriptText: self.transcriptText,
+                provider: self.transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self.transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             let body = try JSONEncoder().encode(payload)
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            try validateResponse(data: data, response: response, defaultMessage: "Failed to save transcript.")
-            try await refreshArtifacts(meetingID: meetingID)
-            artifactsMessage = "Transcript saved."
+            try self.validateResponse(data: data, response: response, defaultMessage: "Failed to save transcript.")
+            try await self.refreshArtifacts(meetingID: meetingID)
+            self.artifactsMessage = "Transcript saved."
         }
     }
 
@@ -502,19 +502,19 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         await saveArtifactsOperation {
-            let baseURL = try baseEndpoint()
+            let baseURL = try self.baseEndpoint()
             let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("summary")
-            var request = request(url: url, method: "PUT")
+            var request = self.request(url: url, method: "PUT")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let payload = MeetingSummaryRequest(
-                summaryText: summaryText,
-                provider: summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+                summaryText: self.summaryText,
+                provider: self.summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self.summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             let body = try JSONEncoder().encode(payload)
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            try validateResponse(data: data, response: response, defaultMessage: "Failed to save summary.")
-            try await refreshArtifacts(meetingID: meetingID)
-            artifactsMessage = "Summary saved."
+            try self.validateResponse(data: data, response: response, defaultMessage: "Failed to save summary.")
+            try await self.refreshArtifacts(meetingID: meetingID)
+            self.artifactsMessage = "Summary saved."
         }
     }
 
@@ -524,24 +524,24 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         await saveArtifactsOperation {
-            let baseURL = try baseEndpoint()
+            let baseURL = try self.baseEndpoint()
             let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items")
-            var request = request(url: url, method: "POST")
+            var request = self.request(url: url, method: "POST")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let payload = ActionItemCreateRequest(
-                description: newActionItemDescription.trimmingCharacters(in: .whitespacesAndNewlines),
-                ownerName: newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines),
-                dueAt: newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: self.newActionItemDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+                ownerName: self.newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self.newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines),
+                dueAt: self.newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self.newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines),
                 completed: false
             )
             let body = try JSONEncoder().encode(payload)
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            try validateResponse(data: data, response: response, defaultMessage: "Failed to add action item.")
-            newActionItemDescription = ""
-            newActionItemOwner = ""
-            newActionItemDueAt = ""
-            try await refreshArtifacts(meetingID: meetingID)
-            artifactsMessage = "Action item added."
+            try self.validateResponse(data: data, response: response, defaultMessage: "Failed to add action item.")
+            self.newActionItemDescription = ""
+            self.newActionItemOwner = ""
+            self.newActionItemDueAt = ""
+            try await self.refreshArtifacts(meetingID: meetingID)
+            self.artifactsMessage = "Action item added."
         }
     }
 
@@ -555,13 +555,13 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         await saveArtifactsOperation {
-            let baseURL = try baseEndpoint()
+            let baseURL = try self.baseEndpoint()
             let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items").appendingPathComponent(String(item.id))
-            let request = request(url: url, method: "DELETE")
+            let request = self.request(url: url, method: "DELETE")
             let (data, response) = try await URLSession.shared.data(for: request)
-            try validateResponse(data: data, response: response, defaultMessage: "Failed to delete action item.")
-            try await refreshArtifacts(meetingID: meetingID)
-            artifactsMessage = "Action item deleted."
+            try self.validateResponse(data: data, response: response, defaultMessage: "Failed to delete action item.")
+            try await self.refreshArtifacts(meetingID: meetingID)
+            self.artifactsMessage = "Action item deleted."
         }
     }
 
@@ -647,15 +647,15 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         await saveArtifactsOperation {
-            let baseURL = try baseEndpoint()
+            let baseURL = try self.baseEndpoint()
             let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items").appendingPathComponent(String(item.id))
-            var request = request(url: url, method: "PATCH")
+            var request = self.request(url: url, method: "PATCH")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body = try JSONEncoder().encode(ActionItemUpdateRequest(completed: completed))
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            try validateResponse(data: data, response: response, defaultMessage: "Failed to update action item.")
-            try await refreshArtifacts(meetingID: meetingID)
-            artifactsMessage = successMessage
+            try self.validateResponse(data: data, response: response, defaultMessage: "Failed to update action item.")
+            try await self.refreshArtifacts(meetingID: meetingID)
+            self.artifactsMessage = successMessage
         }
     }
 
