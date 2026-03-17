@@ -13,6 +13,35 @@ type UploadResult = {
   created_at: string | null;
 };
 
+type TranscriptResult = {
+  id: number;
+  meeting_id: string;
+  transcript_text: string;
+  provider: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type SummaryResult = {
+  id: number;
+  meeting_id: string;
+  summary_text: string;
+  provider: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type ActionItem = {
+  id: number;
+  meeting_id: string;
+  description: string;
+  owner_name: string | null;
+  due_at: string | null;
+  completed: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 const DEFAULT_API_BASE = 'http://localhost:8000';
 
 async function getErrorMessage(response: Response): Promise<string> {
@@ -47,7 +76,6 @@ function App() {
   const startedAtRef = useRef<number | null>(null);
 
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE);
-  const [authToken, setAuthToken] = useState('');
   const [title, setTitle] = useState('');
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -55,6 +83,17 @@ function App() {
   const [statusMessage, setStatusMessage] = useState('Ready to record.');
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [transcriptText, setTranscriptText] = useState('');
+  const [transcriptProvider, setTranscriptProvider] = useState('');
+  const [summaryText, setSummaryText] = useState('');
+  const [summaryProvider, setSummaryProvider] = useState('');
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  const [newActionItemDescription, setNewActionItemDescription] = useState('');
+  const [newActionItemOwner, setNewActionItemOwner] = useState('');
+  const [newActionItemDueAt, setNewActionItemDueAt] = useState('');
+  const [artifactsMessage, setArtifactsMessage] = useState('No transcript, summary, or action items saved yet.');
+  const [artifactsError, setArtifactsError] = useState('');
+  const [isSavingArtifacts, setIsSavingArtifacts] = useState(false);
 
   const mimeType = useMemo(() => getSupportedMimeType(), []);
   const canRecord = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && !!mimeType;
@@ -80,6 +119,43 @@ function App() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  async function fetchOptionalJson<T>(url: string): Promise<T | null> {
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(await getErrorMessage(response));
+    }
+    return (await response.json()) as T;
+  }
+
+  async function refreshArtifacts(meetingId: string) {
+    const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+    const [transcript, summary, items] = await Promise.all([
+      fetchOptionalJson<TranscriptResult>(`${normalizedApiBase}/meetings/${meetingId}/transcript`),
+      fetchOptionalJson<SummaryResult>(`${normalizedApiBase}/meetings/${meetingId}/summary`),
+      fetch(`${normalizedApiBase}/meetings/${meetingId}/action-items`).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await getErrorMessage(response));
+        }
+        return (await response.json()) as ActionItem[];
+      }),
+    ]);
+
+    setTranscriptText(transcript?.transcript_text ?? '');
+    setTranscriptProvider(transcript?.provider ?? '');
+    setSummaryText(summary?.summary_text ?? '');
+    setSummaryProvider(summary?.provider ?? '');
+    setActionItems(items);
+    setArtifactsMessage(
+      transcript || summary || items.length
+        ? 'Meeting artifacts synced from the backend.'
+        : 'No transcript, summary, or action items saved yet.'
+    );
+    setArtifactsError('');
+  }
 
   async function startRecording() {
     setErrorMessage('');
@@ -146,11 +222,6 @@ function App() {
     const durationSeconds = Math.max(elapsedSeconds, 1);
     const extension = mimeType.includes('mp4') ? 'm4a' : 'webm';
     const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
-    const authHeaders = authToken.trim()
-      ? {
-          Authorization: `Bearer ${authToken.trim()}`,
-        }
-      : undefined;
     const formData = new FormData();
     formData.append('audio', audioBlob, `meeting-recording.${extension}`);
     formData.append('duration_seconds', String(durationSeconds));
@@ -164,7 +235,6 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(authHeaders ?? {}),
         },
         body: JSON.stringify({
           title: title.trim() || null,
@@ -180,7 +250,6 @@ function App() {
       setStatusMessage('Uploading recording...');
       const uploadResponse = await fetch(`${normalizedApiBase}/meetings/${startedMeeting.id}/upload-audio`, {
         method: 'POST',
-        headers: authHeaders,
         body: formData,
       });
 
@@ -191,7 +260,6 @@ function App() {
       setStatusMessage('Finalizing meeting...');
       const finalizeResponse = await fetch(`${normalizedApiBase}/meetings/${startedMeeting.id}/finalize`, {
         method: 'POST',
-        headers: authHeaders,
       });
 
       if (!finalizeResponse.ok) {
@@ -200,6 +268,7 @@ function App() {
 
       const data = (await finalizeResponse.json()) as UploadResult;
       setUploadResult(data);
+      await refreshArtifacts(data.id);
       setStatusMessage('Upload complete. Meeting created and finalized successfully.');
       setRecordingState('stopped');
     } catch (error) {
@@ -215,8 +284,183 @@ function App() {
     setElapsedSeconds(0);
     setUploadResult(null);
     setErrorMessage('');
+    setTranscriptText('');
+    setTranscriptProvider('');
+    setSummaryText('');
+    setSummaryProvider('');
+    setActionItems([]);
+    setNewActionItemDescription('');
+    setNewActionItemOwner('');
+    setNewActionItemDueAt('');
+    setArtifactsMessage('No transcript, summary, or action items saved yet.');
+    setArtifactsError('');
     setStatusMessage('Ready to record.');
     setRecordingState('idle');
+  }
+
+  async function saveTranscript() {
+    if (!uploadResult) {
+      return;
+    }
+
+    setIsSavingArtifacts(true);
+    setArtifactsError('');
+
+    try {
+      const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${normalizedApiBase}/meetings/${uploadResult.id}/transcript`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transcript_text: transcriptText,
+          provider: transcriptProvider.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+
+      await refreshArtifacts(uploadResult.id);
+      setArtifactsMessage('Transcript saved.');
+    } catch (error) {
+      setArtifactsError(error instanceof Error ? error.message : 'Failed to save transcript.');
+    } finally {
+      setIsSavingArtifacts(false);
+    }
+  }
+
+  async function saveSummary() {
+    if (!uploadResult) {
+      return;
+    }
+
+    setIsSavingArtifacts(true);
+    setArtifactsError('');
+
+    try {
+      const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${normalizedApiBase}/meetings/${uploadResult.id}/summary`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          summary_text: summaryText,
+          provider: summaryProvider.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+
+      await refreshArtifacts(uploadResult.id);
+      setArtifactsMessage('Summary saved.');
+    } catch (error) {
+      setArtifactsError(error instanceof Error ? error.message : 'Failed to save summary.');
+    } finally {
+      setIsSavingArtifacts(false);
+    }
+  }
+
+  async function addActionItem() {
+    if (!uploadResult || !newActionItemDescription.trim()) {
+      return;
+    }
+
+    setIsSavingArtifacts(true);
+    setArtifactsError('');
+
+    try {
+      const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${normalizedApiBase}/meetings/${uploadResult.id}/action-items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          description: newActionItemDescription.trim(),
+          owner_name: newActionItemOwner.trim() || null,
+          due_at: newActionItemDueAt ? new Date(newActionItemDueAt).toISOString() : null,
+          completed: false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+
+      setNewActionItemDescription('');
+      setNewActionItemOwner('');
+      setNewActionItemDueAt('');
+      await refreshArtifacts(uploadResult.id);
+      setArtifactsMessage('Action item added.');
+    } catch (error) {
+      setArtifactsError(error instanceof Error ? error.message : 'Failed to add action item.');
+    } finally {
+      setIsSavingArtifacts(false);
+    }
+  }
+
+  async function updateActionItem(item: ActionItem, patch: Partial<ActionItem>) {
+    if (!uploadResult) {
+      return;
+    }
+
+    setIsSavingArtifacts(true);
+    setArtifactsError('');
+
+    try {
+      const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${normalizedApiBase}/meetings/${uploadResult.id}/action-items/${item.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patch),
+      });
+
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+
+      await refreshArtifacts(uploadResult.id);
+      setArtifactsMessage('Action item updated.');
+    } catch (error) {
+      setArtifactsError(error instanceof Error ? error.message : 'Failed to update action item.');
+    } finally {
+      setIsSavingArtifacts(false);
+    }
+  }
+
+  async function deleteActionItem(itemId: number) {
+    if (!uploadResult) {
+      return;
+    }
+
+    setIsSavingArtifacts(true);
+    setArtifactsError('');
+
+    try {
+      const normalizedApiBase = apiBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${normalizedApiBase}/meetings/${uploadResult.id}/action-items/${itemId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(await getErrorMessage(response));
+      }
+
+      await refreshArtifacts(uploadResult.id);
+      setArtifactsMessage('Action item deleted.');
+    } catch (error) {
+      setArtifactsError(error instanceof Error ? error.message : 'Failed to delete action item.');
+    } finally {
+      setIsSavingArtifacts(false);
+    }
   }
 
   return (
@@ -225,9 +469,8 @@ function App() {
         <p className="eyebrow">MeetingBrief Local Recorder</p>
         <h1>Record locally, upload directly, verify the backend contract.</h1>
         <p className="hero-copy">
-          This screen is wired to the meeting lifecycle flow: start, upload audio, then finalize. Supply a
-          bearer token, or leave it blank when local development uses <code>DEV_AUTH_USER_ID</code> on the
-          backend.
+          This screen is wired to the meeting lifecycle flow: start, upload audio, then finalize. It is
+          configured for local backend testing without authentication.
         </p>
       </section>
 
@@ -240,16 +483,6 @@ function App() {
             value={apiBaseUrl}
             onChange={(event) => setApiBaseUrl(event.target.value)}
             placeholder="http://localhost:8000"
-          />
-
-          <label className="field-label" htmlFor="authToken">Bearer token</label>
-          <textarea
-            id="authToken"
-            className="text-area"
-            value={authToken}
-            onChange={(event) => setAuthToken(event.target.value)}
-            placeholder="Optional when DEV_AUTH_USER_ID is configured on the backend"
-            rows={4}
           />
 
           <label className="field-label" htmlFor="meetingTitle">Meeting title</label>
@@ -342,6 +575,136 @@ function App() {
         ) : (
           <p className="empty-copy">No upload completed yet.</p>
         )}
+      </section>
+
+      <section className="panel artifacts-panel">
+        <div className="artifacts-header">
+          <div>
+            <p className="eyebrow">Artifacts</p>
+            <h2>Transcript, summary, and action items</h2>
+          </div>
+          {uploadResult ? <span className="status-pill">Meeting ready</span> : null}
+        </div>
+
+        {!uploadResult ? (
+          <p className="empty-copy">Upload a meeting first to manage transcript, summary, and action items.</p>
+        ) : (
+          <div className="artifact-grid">
+            <div className="artifact-card">
+              <h3>Transcript</h3>
+              <label className="field-label" htmlFor="transcriptProvider">Provider</label>
+              <input
+                id="transcriptProvider"
+                className="text-input"
+                value={transcriptProvider}
+                onChange={(event) => setTranscriptProvider(event.target.value)}
+                placeholder="OpenAI, Anthropic, manual"
+              />
+              <label className="field-label" htmlFor="transcriptText">Transcript text</label>
+              <textarea
+                id="transcriptText"
+                className="text-area artifact-textarea"
+                value={transcriptText}
+                onChange={(event) => setTranscriptText(event.target.value)}
+                placeholder="Paste or edit the transcript here"
+                rows={8}
+              />
+              <button className="primary-button" type="button" onClick={saveTranscript} disabled={isSavingArtifacts || !transcriptText.trim()}>
+                Save Transcript
+              </button>
+            </div>
+
+            <div className="artifact-card">
+              <h3>Summary</h3>
+              <label className="field-label" htmlFor="summaryProvider">Provider</label>
+              <input
+                id="summaryProvider"
+                className="text-input"
+                value={summaryProvider}
+                onChange={(event) => setSummaryProvider(event.target.value)}
+                placeholder="OpenAI, Anthropic, manual"
+              />
+              <label className="field-label" htmlFor="summaryText">Summary text</label>
+              <textarea
+                id="summaryText"
+                className="text-area artifact-textarea"
+                value={summaryText}
+                onChange={(event) => setSummaryText(event.target.value)}
+                placeholder="Write the meeting summary here"
+                rows={8}
+              />
+              <button className="primary-button" type="button" onClick={saveSummary} disabled={isSavingArtifacts || !summaryText.trim()}>
+                Save Summary
+              </button>
+            </div>
+
+            <div className="artifact-card artifact-card--wide">
+              <h3>Action items</h3>
+              <div className="action-item-form">
+                <input
+                  className="text-input"
+                  value={newActionItemDescription}
+                  onChange={(event) => setNewActionItemDescription(event.target.value)}
+                  placeholder="Action item description"
+                />
+                <input
+                  className="text-input"
+                  value={newActionItemOwner}
+                  onChange={(event) => setNewActionItemOwner(event.target.value)}
+                  placeholder="Owner"
+                />
+                <input
+                  className="text-input"
+                  type="datetime-local"
+                  value={newActionItemDueAt}
+                  onChange={(event) => setNewActionItemDueAt(event.target.value)}
+                />
+                <button className="primary-button" type="button" onClick={addActionItem} disabled={isSavingArtifacts || !newActionItemDescription.trim()}>
+                  Add Action Item
+                </button>
+              </div>
+
+              {actionItems.length ? (
+                <div className="action-item-list">
+                  {actionItems.map((item) => (
+                    <div className="action-item-row" key={item.id}>
+                      <div>
+                        <p className={`action-item-title${item.completed ? ' action-item-title--done' : ''}`}>{item.description}</p>
+                        <p className="action-item-meta">
+                          {item.owner_name || 'Unassigned'}
+                          {item.due_at ? ` • Due ${new Date(item.due_at).toLocaleString()}` : ''}
+                        </p>
+                      </div>
+                      <div className="action-item-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => updateActionItem(item, { completed: !item.completed })}
+                          disabled={isSavingArtifacts}
+                        >
+                          {item.completed ? 'Mark Open' : 'Complete'}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => deleteActionItem(item.id)}
+                          disabled={isSavingArtifacts}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">No action items yet.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className="status-copy">{artifactsMessage}</p>
+        {artifactsError ? <p className="error-banner">{artifactsError}</p> : null}
       </section>
     </main>
   );

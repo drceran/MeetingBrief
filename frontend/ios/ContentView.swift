@@ -23,7 +23,7 @@ struct ContentView: View {
                             .font(.largeTitle)
                             .fontWeight(.bold)
 
-                        Text("Use a bearer token when backend auth is enabled, or leave it blank when local development sets DEV_AUTH_USER_ID.")
+                        Text("Configured for local backend testing without authentication.")
                             .foregroundStyle(.secondary)
                     }
 
@@ -34,14 +34,6 @@ struct ContentView: View {
                             .autocapitalization(.none)
                             .disableAutocorrection(true)
                             .textFieldStyle(.roundedBorder)
-
-                        Text("Bearer token")
-                            .font(.headline)
-                        TextEditor(text: $viewModel.authToken)
-                            .frame(minHeight: 100)
-                            .padding(8)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
 
                         Text("Meeting title")
                             .font(.headline)
@@ -114,6 +106,121 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Meeting artifacts")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+
+                        if viewModel.uploadResult == nil {
+                            Text("Upload a meeting first to manage transcript, summary, and action items.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Transcript")
+                                    .font(.headline)
+                                TextField("Provider", text: $viewModel.transcriptProvider)
+                                    .textFieldStyle(.roundedBorder)
+                                TextEditor(text: $viewModel.transcriptText)
+                                    .frame(minHeight: 140)
+                                    .padding(8)
+                                    .background(Color(uiColor: .secondarySystemBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                Button("Save Transcript") {
+                                    Task {
+                                        await viewModel.saveTranscript()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(viewModel.isSavingArtifacts || viewModel.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Summary")
+                                    .font(.headline)
+                                TextField("Provider", text: $viewModel.summaryProvider)
+                                    .textFieldStyle(.roundedBorder)
+                                TextEditor(text: $viewModel.summaryText)
+                                    .frame(minHeight: 140)
+                                    .padding(8)
+                                    .background(Color(uiColor: .secondarySystemBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                Button("Save Summary") {
+                                    Task {
+                                        await viewModel.saveSummary()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(viewModel.isSavingArtifacts || viewModel.summaryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Action items")
+                                    .font(.headline)
+                                TextField("Description", text: $viewModel.newActionItemDescription)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("Owner", text: $viewModel.newActionItemOwner)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField("Due date (optional ISO string)", text: $viewModel.newActionItemDueAt)
+                                    .textFieldStyle(.roundedBorder)
+                                Button("Add Action Item") {
+                                    Task {
+                                        await viewModel.addActionItem()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(viewModel.isSavingArtifacts || viewModel.newActionItemDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                if viewModel.actionItems.isEmpty {
+                                    Text("No action items yet.")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(viewModel.actionItems) { item in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text(item.description)
+                                                .fontWeight(.semibold)
+                                                .strikethrough(item.completed)
+                                            Text(item.ownerName ?? "Unassigned")
+                                                .foregroundStyle(.secondary)
+                                            HStack {
+                                                Button(item.completed ? "Mark Open" : "Complete") {
+                                                    Task {
+                                                        await viewModel.toggleActionItem(item)
+                                                    }
+                                                }
+                                                .buttonStyle(.bordered)
+
+                                                Button("Delete", role: .destructive) {
+                                                    Task {
+                                                        await viewModel.deleteActionItem(item)
+                                                    }
+                                                }
+                                                .buttonStyle(.bordered)
+                                            }
+                                        }
+                                        .padding(12)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(uiColor: .secondarySystemBackground))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    }
+                                }
+                            }
+
+                            if !viewModel.artifactsMessage.isEmpty {
+                                Text(viewModel.artifactsMessage)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if !viewModel.artifactsError.isEmpty {
+                                Text(viewModel.artifactsError)
+                                    .foregroundStyle(.red)
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.red.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                    }
                 }
                 .padding(20)
             }
@@ -145,14 +252,97 @@ struct MeetingUploadResponse: Decodable {
     }
 }
 
+struct MeetingTranscriptResponse: Decodable {
+    let id: Int
+    let meetingID: String
+    let transcriptText: String
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case meetingID = "meeting_id"
+        case transcriptText = "transcript_text"
+        case provider
+    }
+}
+
+struct MeetingSummaryResponse: Decodable {
+    let id: Int
+    let meetingID: String
+    let summaryText: String
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case meetingID = "meeting_id"
+        case summaryText = "summary_text"
+        case provider
+    }
+}
+
+struct ActionItemResponse: Decodable, Identifiable {
+    let id: Int
+    let meetingID: String
+    let description: String
+    let ownerName: String?
+    let dueAt: String?
+    let completed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case meetingID = "meeting_id"
+        case description
+        case ownerName = "owner_name"
+        case dueAt = "due_at"
+        case completed
+    }
+}
+
 private struct MeetingStartRequest: Encodable {
     let title: String?
+}
+
+private struct MeetingTranscriptRequest: Encodable {
+    let transcriptText: String
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case transcriptText = "transcript_text"
+        case provider
+    }
+}
+
+private struct MeetingSummaryRequest: Encodable {
+    let summaryText: String
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case summaryText = "summary_text"
+        case provider
+    }
+}
+
+private struct ActionItemCreateRequest: Encodable {
+    let description: String
+    let ownerName: String?
+    let dueAt: String?
+    let completed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case description
+        case ownerName = "owner_name"
+        case dueAt = "due_at"
+        case completed
+    }
+}
+
+private struct ActionItemUpdateRequest: Encodable {
+    let completed: Bool
 }
 
 @MainActor
 final class RecordingViewModel: NSObject, ObservableObject {
     @Published var backendURL = "http://localhost:8000"
-    @Published var authToken = ""
     @Published var meetingTitle = ""
     @Published var statusMessage = "Ready to record."
     @Published var errorMessage = ""
@@ -161,6 +351,17 @@ final class RecordingViewModel: NSObject, ObservableObject {
     @Published var elapsedSeconds = 0
     @Published var recordingURL: URL?
     @Published var uploadResult: MeetingUploadResponse?
+    @Published var transcriptText = ""
+    @Published var transcriptProvider = ""
+    @Published var summaryText = ""
+    @Published var summaryProvider = ""
+    @Published var actionItems: [ActionItemResponse] = []
+    @Published var newActionItemDescription = ""
+    @Published var newActionItemOwner = ""
+    @Published var newActionItemDueAt = ""
+    @Published var artifactsMessage = ""
+    @Published var artifactsError = ""
+    @Published var isSavingArtifacts = false
 
     private var audioRecorder: AVAudioRecorder?
     private var timer: Timer?
@@ -231,6 +432,16 @@ final class RecordingViewModel: NSObject, ObservableObject {
         uploadResult = nil
         elapsedSeconds = 0
         errorMessage = ""
+        transcriptText = ""
+        transcriptProvider = ""
+        summaryText = ""
+        summaryProvider = ""
+        actionItems = []
+        newActionItemDescription = ""
+        newActionItemOwner = ""
+        newActionItemDueAt = ""
+        artifactsMessage = ""
+        artifactsError = ""
         statusMessage = "Ready to record."
     }
 
@@ -253,6 +464,7 @@ final class RecordingViewModel: NSObject, ObservableObject {
 
             statusMessage = "Finalizing meeting..."
             uploadResult = try await finalizeMeeting(id: startedMeeting.id)
+            try await refreshArtifacts(meetingID: startedMeeting.id)
             statusMessage = "Upload complete. Meeting created and finalized successfully."
         } catch {
             errorMessage = error.localizedDescription
@@ -260,6 +472,97 @@ final class RecordingViewModel: NSObject, ObservableObject {
         }
 
         isUploading = false
+    }
+
+    func saveTranscript() async {
+        guard let meetingID = uploadResult?.id else {
+            return
+        }
+
+        await saveArtifactsOperation {
+            let baseURL = try baseEndpoint()
+            let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("transcript")
+            var request = request(url: url, method: "PUT")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let payload = MeetingTranscriptRequest(
+                transcriptText: transcriptText,
+                provider: transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : transcriptProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let body = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            try validateResponse(data: data, response: response, defaultMessage: "Failed to save transcript.")
+            try await refreshArtifacts(meetingID: meetingID)
+            artifactsMessage = "Transcript saved."
+        }
+    }
+
+    func saveSummary() async {
+        guard let meetingID = uploadResult?.id else {
+            return
+        }
+
+        await saveArtifactsOperation {
+            let baseURL = try baseEndpoint()
+            let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("summary")
+            var request = request(url: url, method: "PUT")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let payload = MeetingSummaryRequest(
+                summaryText: summaryText,
+                provider: summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summaryProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let body = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            try validateResponse(data: data, response: response, defaultMessage: "Failed to save summary.")
+            try await refreshArtifacts(meetingID: meetingID)
+            artifactsMessage = "Summary saved."
+        }
+    }
+
+    func addActionItem() async {
+        guard let meetingID = uploadResult?.id else {
+            return
+        }
+
+        await saveArtifactsOperation {
+            let baseURL = try baseEndpoint()
+            let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items")
+            var request = request(url: url, method: "POST")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let payload = ActionItemCreateRequest(
+                description: newActionItemDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+                ownerName: newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newActionItemOwner.trimmingCharacters(in: .whitespacesAndNewlines),
+                dueAt: newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newActionItemDueAt.trimmingCharacters(in: .whitespacesAndNewlines),
+                completed: false
+            )
+            let body = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            try validateResponse(data: data, response: response, defaultMessage: "Failed to add action item.")
+            newActionItemDescription = ""
+            newActionItemOwner = ""
+            newActionItemDueAt = ""
+            try await refreshArtifacts(meetingID: meetingID)
+            artifactsMessage = "Action item added."
+        }
+    }
+
+    func toggleActionItem(_ item: ActionItemResponse) async {
+        await updateActionItem(item, completed: !item.completed, successMessage: "Action item updated.")
+    }
+
+    func deleteActionItem(_ item: ActionItemResponse) async {
+        guard let meetingID = uploadResult?.id else {
+            return
+        }
+
+        await saveArtifactsOperation {
+            let baseURL = try baseEndpoint()
+            let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items").appendingPathComponent(String(item.id))
+            let request = request(url: url, method: "DELETE")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validateResponse(data: data, response: response, defaultMessage: "Failed to delete action item.")
+            try await refreshArtifacts(meetingID: meetingID)
+            artifactsMessage = "Action item deleted."
+        }
     }
 
     private func startTimer() {
@@ -291,22 +594,88 @@ final class RecordingViewModel: NSObject, ObservableObject {
         return url
     }
 
-    private func authorizedRequest(url: URL, method: String) -> URLRequest {
+    private func request(url: URL, method: String) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
+        return request
+    }
 
-        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedToken.isEmpty {
-            request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
+    private func refreshArtifacts(meetingID: String) async throws {
+        let baseURL = try baseEndpoint()
+
+        let transcriptURL = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("transcript")
+        let summaryURL = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("summary")
+        let actionItemsURL = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items")
+
+        let transcript = try await fetchOptional(MeetingTranscriptResponse.self, url: transcriptURL)
+        let summary = try await fetchOptional(MeetingSummaryResponse.self, url: summaryURL)
+
+        let actionItemsRequest = request(url: actionItemsURL, method: "GET")
+        let (actionItemsData, actionItemsResponse) = try await URLSession.shared.data(for: actionItemsRequest)
+        try validateResponse(data: actionItemsData, response: actionItemsResponse, defaultMessage: "Failed to load action items.")
+        actionItems = try JSONDecoder().decode([ActionItemResponse].self, from: actionItemsData)
+
+        transcriptText = transcript?.transcriptText ?? ""
+        transcriptProvider = transcript?.provider ?? ""
+        summaryText = summary?.summaryText ?? ""
+        summaryProvider = summary?.provider ?? ""
+        artifactsError = ""
+        artifactsMessage = (transcript != nil || summary != nil || !actionItems.isEmpty)
+            ? "Meeting artifacts synced from the backend."
+            : "No transcript, summary, or action items saved yet."
+    }
+
+    private func fetchOptional<T: Decodable>(_ type: T.Type, url: URL) async throws -> T? {
+        let request = request(url: url, method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw UploadError.invalidResponse
         }
 
-        return request
+        if httpResponse.statusCode == 404 {
+            return nil
+        }
+
+        try validateResponse(data: data, response: response, defaultMessage: "Failed to load meeting artifacts.")
+        return try JSONDecoder().decode(type, from: data)
+    }
+
+    private func updateActionItem(_ item: ActionItemResponse, completed: Bool, successMessage: String) async {
+        guard let meetingID = uploadResult?.id else {
+            return
+        }
+
+        await saveArtifactsOperation {
+            let baseURL = try baseEndpoint()
+            let url = baseURL.appendingPathComponent("meetings").appendingPathComponent(meetingID).appendingPathComponent("action-items").appendingPathComponent(String(item.id))
+            var request = request(url: url, method: "PATCH")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body = try JSONEncoder().encode(ActionItemUpdateRequest(completed: completed))
+            let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+            try validateResponse(data: data, response: response, defaultMessage: "Failed to update action item.")
+            try await refreshArtifacts(meetingID: meetingID)
+            artifactsMessage = successMessage
+        }
+    }
+
+    private func saveArtifactsOperation(_ operation: @escaping () async throws -> Void) async {
+        artifactsError = ""
+        isSavingArtifacts = true
+
+        do {
+            try await operation()
+        } catch {
+            artifactsError = error.localizedDescription
+        }
+
+        isSavingArtifacts = false
     }
 
     private func startMeeting() async throws -> MeetingUploadResponse {
         let baseURL = try baseEndpoint()
         let startURL = baseURL.appendingPathComponent("meetings/start")
-        var request = authorizedRequest(url: startURL, method: "POST")
+        var request = request(url: startURL, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let trimmedTitle = meetingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -325,7 +694,7 @@ final class RecordingViewModel: NSObject, ObservableObject {
             .appendingPathComponent(meetingID)
             .appendingPathComponent("upload-audio")
 
-        var request = authorizedRequest(url: uploadURL, method: "POST")
+        var request = request(url: uploadURL, method: "POST")
         let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -342,7 +711,7 @@ final class RecordingViewModel: NSObject, ObservableObject {
             .appendingPathComponent(meetingID)
             .appendingPathComponent("finalize")
 
-        let request = authorizedRequest(url: finalizeURL, method: "POST")
+        let request = request(url: finalizeURL, method: "POST")
         let (data, response) = try await URLSession.shared.data(for: request)
         try validateResponse(data: data, response: response, defaultMessage: "Failed to finalize meeting.")
         return try JSONDecoder().decode(MeetingUploadResponse.self, from: data)

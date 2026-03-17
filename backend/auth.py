@@ -24,6 +24,15 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _is_auth_disabled() -> bool:
+    return os.getenv("AUTH_DISABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _get_dev_user() -> Dict[str, Any] | None:
     user_id = os.getenv("DEV_AUTH_USER_ID", "").strip()
     if not user_id:
@@ -34,6 +43,17 @@ def _get_dev_user() -> Dict[str, Any] | None:
         "email": os.getenv("DEV_AUTH_EMAIL", "dev@meetingbrief.local"),
         "role": "developer",
         "is_dev_auth": True,
+    }
+
+
+def _get_local_user() -> Dict[str, Any]:
+    user_id = os.getenv("DEV_AUTH_USER_ID", "").strip() or "local-dev-user"
+    return {
+        "sub": user_id,
+        "email": os.getenv("DEV_AUTH_EMAIL", "dev@meetingbrief.local"),
+        "role": "developer",
+        "is_dev_auth": True,
+        "auth_disabled": _is_auth_disabled(),
     }
 
 
@@ -58,6 +78,9 @@ def get_current_user(
 
     Raises 401 if the token is missing, expired, or invalid.
     """
+    if _is_auth_disabled():
+        return _get_local_user()
+
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -110,6 +133,9 @@ def get_current_user(
 def get_current_user_or_dev(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> Dict[str, Any]:
+    if _is_auth_disabled():
+        return _get_local_user()
+
     if credentials is None:
         dev_user = _get_dev_user()
         if dev_user is not None:

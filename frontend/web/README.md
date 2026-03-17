@@ -6,10 +6,12 @@ React + TypeScript web app for Meeting Notes AI.
 
 1. Install dependencies: `npm install`
 2. Start development server: `npm start`
-3. Point the UI at your backend URL and either paste a bearer token or enable `DEV_AUTH_USER_ID` on the backend for local testing.
+3. Point the UI at your backend URL. The local backend can run with authentication disabled for development.
 
 ## Features
 
 - Browser-based audio recording with `MediaRecorder`
-- Direct multipart upload to `POST /meetings/upload`
+- Client-driven meeting lifecycle using `POST /meetings/start`, `POST /meetings/{id}/upload-audio`, and `POST /meetings/{id}/finalize`
+- Transcript and summary editing against the local backend
+- Action item creation, completion toggling, and deletion
 - Local preview of the recorded clip and the created meeting response

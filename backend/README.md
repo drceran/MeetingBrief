@@ -71,8 +71,16 @@ PORT=5000 python3 main.py
 - Meeting recording upload
 - Background transcription and summarization
 
+## Core Tables
+
+- `meetings`
+- `meeting_transcripts`
+- `meeting_summaries`
+- `action_items`
+
 ## Local development helpers
 
+- Set `AUTH_DISABLED=true` to bypass JWT verification entirely and use a local developer user for all auth-protected routes.
 - Set `DEV_AUTH_USER_ID` to allow owner-scoped meeting endpoints and uploads without a bearer token during local development.
 - Set `CORS_ORIGINS` to a comma-separated list of allowed web origins when testing browser uploads.
 - Uploaded audio files are stored under `backend/media/` by default and served from `/media/...` locally.
@@ -86,4 +94,12 @@ PORT=5000 python3 main.py
 - `POST /meetings/{meeting_id}/finalize` — mark an uploaded meeting as finalized.
 - `POST /meetings/upload` — upload audio directly as multipart form data and create a meeting record.
 - `GET /meetings/{meeting_id}` — fetch one meeting (owner-only).
+- `GET /meetings/{meeting_id}/transcript` — fetch the stored transcript for a meeting.
+- `PUT /meetings/{meeting_id}/transcript` — create or replace the transcript for a meeting.
+- `GET /meetings/{meeting_id}/summary` — fetch the stored summary for a meeting.
+- `PUT /meetings/{meeting_id}/summary` — create or replace the summary for a meeting.
+- `GET /meetings/{meeting_id}/action-items` — list all action items for a meeting.
+- `POST /meetings/{meeting_id}/action-items` — create a new action item for a meeting.
+- `PATCH /meetings/{meeting_id}/action-items/{action_item_id}` — update an existing action item.
+- `DELETE /meetings/{meeting_id}/action-items/{action_item_id}` — delete an action item.
 - `POST /meetings/upload/webhook` — update meeting upload metadata/status (optional `X-Webhook-Secret`).

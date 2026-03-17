@@ -94,13 +94,16 @@ async def root():
 # Register routers.
 try:
     from .routers.auth import router as auth_router
+    from .routers.meeting_artifacts import router as meeting_artifacts_router
     from .routers.meetings import router as meetings_router
 except ImportError:
     from routers.auth import router as auth_router
+    from routers.meeting_artifacts import router as meeting_artifacts_router
     from routers.meetings import router as meetings_router
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
+app.include_router(meeting_artifacts_router, prefix="/meetings", tags=["meeting-artifacts"])
 
 
 if __name__ == "__main__":
