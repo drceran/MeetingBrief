@@ -51,6 +51,19 @@ class MeetingResponse(BaseModel):
     created_at: datetime | None
 
 
+@router.get("/", response_model=list[MeetingResponse])
+async def list_meetings(
+    user: CurrentOrDevUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    result = await db.execute(
+        select(Meeting)
+        .where(Meeting.user_id == user["sub"])
+        .order_by(Meeting.created_at.desc(), Meeting.id.desc())
+    )
+    return list(result.scalars().all())
+
+
 async def _get_owned_meeting(
     meeting_id: str,
     user_id: str,

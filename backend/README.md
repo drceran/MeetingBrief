@@ -67,12 +67,14 @@ PORT=5000 python3 main.py
 
 ## Features
 
-- Authentication via Supabase
+- Local app user registration and login with JWT sessions
+- Optional Supabase JWT compatibility for existing integrations
 - Meeting recording upload
-- Background transcription and summarization
+- Stored meetings, transcripts, summaries, and action items per user
 
 ## Core Tables
 
+- `users`
 - `meetings`
 - `meeting_transcripts`
 - `meeting_summaries`
@@ -81,13 +83,19 @@ PORT=5000 python3 main.py
 ## Local development helpers
 
 - Set `AUTH_DISABLED=true` to bypass JWT verification entirely and use a local developer user for all auth-protected routes.
+- Set `AUTH_DISABLED=false` when testing the new local register/login flow.
 - Set `DEV_AUTH_USER_ID` to allow owner-scoped meeting endpoints and uploads without a bearer token during local development.
+- Set `APP_JWT_SECRET` to override the default local JWT signing secret.
 - Set `CORS_ORIGINS` to a comma-separated list of allowed web origins when testing browser uploads.
 - Uploaded audio files are stored under `backend/media/` by default and served from `/media/...` locally.
 
 ## API Endpoints
 
-- `GET /auth/verify` — verify Supabase JWT and return authenticated user summary.
+- `POST /auth/register` — create a local user account and return an access token.
+- `POST /auth/login` — authenticate a local user and return an access token.
+- `GET /auth/me` — return the authenticated user profile.
+- `GET /auth/verify` — verify the current bearer token and return the authenticated user summary.
+- `GET /meetings/` — list all meetings owned by the current user.
 - `POST /meetings/start` — create an empty meeting record and begin the client-driven lifecycle.
 - `POST /meetings/` — create a meeting record for the authenticated user.
 - `POST /meetings/{meeting_id}/upload-audio` — attach uploaded audio to an existing meeting.
