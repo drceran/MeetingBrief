@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -17,6 +17,16 @@ except ImportError:
 
 
 router = APIRouter()
+
+
+def _normalize_due_at(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value
+
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class MeetingTranscriptUpsert(BaseModel):
@@ -228,7 +238,7 @@ async def create_action_item(
         meeting_id=meeting_id,
         description=payload.description,
         owner_name=payload.owner_name,
-        due_at=payload.due_at,
+        due_at=_normalize_due_at(payload.due_at),
         completed=payload.completed,
     )
     db.add(action_item)
@@ -250,6 +260,8 @@ async def update_action_item(
 
     update_data = payload.model_dump(exclude_unset=True)
     for field_name, value in update_data.items():
+        if field_name == "due_at":
+            value = _normalize_due_at(value)
         setattr(action_item, field_name, value)
 
     await db.commit()
